@@ -1,0 +1,32 @@
+{
+  "revision_id": "UTCNC-PD-20260825-R3",
+  "project_display_name": "Utility Tariff Change Notice Covenant",
+  "network": "studionet",
+  "chain_id": 61999,
+  "contract_address": "0xdcad372A9D2Db1afF6e5fa29A5E3c0EeCAE63814",
+  "deployer_address": "0x34b92E6553eaCA11A00A9d86d75d8a7881779D78",
+  "deployment_transaction": "0xb6c3b42f7198bab4617498cb6c2e10c56f5318fd7251b0d4a98e7295991e0638",
+  "deployment_status": "FINALIZED",
+  "deployment_result": "SUCCESS",
+  "artifacts": {
+    "contracts/utility_tariff_change_notice_covenant.py": "637053FF841FA8DC97D43A6F716278CECB43E46F42F6ED7BEFE2A66F45D280D5",
+    "tests/test_utility_tariff_change_notice_covenant.py": "ED3A3505515D8BA83BD105AACF1F9BC8215700914394FA023EDB2DDAF4F872F2",
+    "E2E_TEST_PLAN.md": "2185E31AECB89EB8AC4ED460F48FDE65BC21A2761AD860580CB51746243115C1"
+  },
+  "sample_canonical_sha256": {
+    "samples/tariff_primary.txt": "4110eba6ea6ed9c4855483e19e2a4abbe455fc13a47ad1414655310975ac16bd",
+    "samples/notice_primary.txt": "c17f77d7b7090f225483c09a1b8269e8d0ea091ba7cc48c2a45d0e3d6d65653f",
+    "samples/notice_corrected.txt": "927091540e14f1abb26b597ab10e552ad1b25ca9a6e85936aaee54e3259fb5b6",
+    "samples/notice_service_class_mismatch.txt": "504f18cf804e9431611d1776da9364740342ac11af5a30fb0677d4dbd1882fe2",
+    "samples/notice_effective_date_mismatch.txt": "9f2e587e45021674394d3dc7fcdf95df6cfc5fa84817083b9c0deadea00d392a",
+    "samples/notice_partial.txt": "8720f3f7aa676268d38b6e79cfc44e12392ea2d6b353c8a7949cf652ae224628"
+  },
+  "local_verification": {
+    "environment": "WSL2/uv, CPython 3.12",
+    "tests": "105 passed",
+    "lint": "3 checks passed; validation passed",
+    "compileall": "passed",
+    "linter_dependency": "genvm-linter==0.11.0",
+    "native_windows_note": "genlayer-test==0.29.2 Direct Mode hits gltest stdin temp-file WinError 32 before contract import; not counted as a Windows pass"
+  }
+}

@@ -1,0 +1,10 @@
+Customer notice
+Utility: Metro Electric Utility
+Jurisdiction: Test Jurisdiction
+Tariff revision: Revision 2026-08
+Service class: Residential Service
+Effective date: 2026-09-01
+Charge direction: increase
+Customer charge: 12.00 to 15.00
+Energy charge: 0.10 to 0.12 per kWh
+Transition condition: rates apply to service rendered on and after the effective date.
