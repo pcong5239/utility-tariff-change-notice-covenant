@@ -75,8 +75,6 @@ NOTICE_HASH = sha256_hex(canonical_visible(NOTICE_BODY))
 CORRECTED_NOTICE_HASH = sha256_hex(canonical_visible(CORRECTED_NOTICE_BODY))
 
 RECORD_ID = "record-001"
-PUBLICATION_DAY = 20260301
-CORRECTION_DAY = 20260315
 EFFECTIVE_DAY = 20260401
 
 
@@ -303,6 +301,8 @@ def test_registration_invalid_hash_rejected(direct_deploy, direct_vm, bad_hash):
         128,
         255,
         -1,
+        True,
+        "127",
     ],
 )
 def test_registration_invalid_mask_rejected(direct_deploy, direct_vm, bad_mask):
@@ -318,6 +318,24 @@ def test_registration_invalid_mask_rejected(direct_deploy, direct_vm, bad_mask):
             TARIFF_HASH,
             PERMITTED_DOMAINS,
             bad_mask,
+        )
+
+
+def test_registration_float_mask_rejected_by_calldata_schema_without_broadcast(
+    direct_deploy, direct_vm
+):
+    contract = deploy(direct_deploy)
+    with pytest.raises(TypeError, match="not calldata encodable"):
+        contract.register_tariff(
+            RECORD_ID,
+            UTILITY_NAME,
+            JURISDICTION,
+            TARIFF_REVISION_LABEL,
+            SERVICE_CLASS_LABEL,
+            TARIFF_URL,
+            TARIFF_HASH,
+            PERMITTED_DOMAINS,
+            1.9,
         )
 
 
@@ -384,7 +402,43 @@ def test_assess_before_seal_rejected(direct_deploy, direct_vm):
     contract = deploy(direct_deploy)
     register_default(contract)
     with direct_vm.expect_revert("RECORD_NOT_SEALED"):
-        contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+        contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
+
+
+def test_assessment_and_correction_do_not_accept_caller_publication_day(direct_deploy, direct_vm):
+    contract = deploy(direct_deploy)
+    seal_default(contract)
+
+    with pytest.raises(TypeError):
+        contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, 99991231)
+
+    assert contract.read_notice_trace(RECORD_ID)[10] == "TARIFF_SEALED"
+
+    mock_docs(direct_vm)
+    direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
+    first = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
+    assert first[9] == 1
+    before = contract.read_notice_trace(RECORD_ID)
+
+    with pytest.raises(TypeError):
+        contract.reassess_corrected_notice(
+            RECORD_ID,
+            1,
+            CORRECTION_NOTICE_URL,
+            CORRECTED_NOTICE_HASH,
+            99991231,
+        )
+
+    with pytest.raises(TypeError):
+        contract.reassess_corrected_notice(
+            RECORD_ID,
+            1,
+            CORRECTION_NOTICE_URL,
+            CORRECTED_NOTICE_HASH,
+            publication_day=99991231,
+        )
+
+    assert contract.read_notice_trace(RECORD_ID) == before
 
 
 # =============================================================================
@@ -397,7 +451,7 @@ def test_assess_customer_notice_traceable_full_match(direct_deploy, direct_vm):
     mock_docs(direct_vm)
     direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res[0] == "TRACEABLE"
     assert res[1] == ALL_CRITERIA_MASK  # matched
     assert res[2] == 0  # mismatch
@@ -408,6 +462,28 @@ def test_assess_customer_notice_traceable_full_match(direct_deploy, direct_vm):
     assert res[7] == COMPONENT_ENERGY_SUPPLY | COMPONENT_DELIVERY_DISTRIBUTION
     assert res[8] == "VALID"
     assert res[9] == 1  # revision
+
+
+def test_assessment_normalizes_lossless_json_scalar_variants(direct_deploy, direct_vm):
+    contract = deploy(direct_deploy)
+    seal_default(contract)
+    mock_docs(direct_vm)
+    payload = make_assessment_payload(
+        matched_mask="127",
+        mismatch_mask="0",
+        missing_mask="0",
+        effective_day="20260401",
+        charge_direction="increase",
+        component_mask="3",
+        evidence_state="valid",
+    )
+    direct_vm.mock_llm(r"covenant analyst", payload)
+
+    result = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
+
+    assert result[:4] == ("TRACEABLE", 127, 0, 0)
+    assert result[4:6] == (20260401, "INCREASE")
+    assert result[7:10] == (3, "VALID", 1)
 
 
 @pytest.mark.parametrize(
@@ -450,7 +526,7 @@ def test_assess_customer_notice_each_individual_mismatch(direct_deploy, direct_v
         ),
     )
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res[0] == "MISMATCH"
     assert res[1] == matched
     assert res[2] == mismatch_bit
@@ -503,7 +579,7 @@ def test_assess_customer_notice_each_individual_missing(direct_deploy, direct_vm
         ),
     )
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res[0] == "PARTIAL"
     assert res[1] == matched
     assert res[2] == 0
@@ -527,7 +603,7 @@ def test_assess_customer_notice_mismatch_precedence_over_missing(direct_deploy, 
         ),
     )
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res[0] == "MISMATCH"
     assert res[1] == matched
     assert res[2] == EFFECTIVE_DATE
@@ -549,7 +625,7 @@ def test_assess_customer_notice_invalid_partition_returns_unresolved(direct_depl
         ),
     )
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res[0] == "UNRESOLVED"
     assert res[1] == 0  # matched
     assert res[2] == 0  # mismatch
@@ -566,7 +642,7 @@ def test_read_views_after_assessment(direct_deploy, direct_vm):
     mock_docs(direct_vm)
     direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
 
-    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
 
     trace = contract.read_notice_trace(RECORD_ID)
     assert trace[0] == "TRACEABLE"
@@ -624,7 +700,7 @@ def test_effective_date_validation_calendar_day_rejected(direct_deploy, direct_v
         make_assessment_payload(effective_day=invalid_day),
     )
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res[0] == "UNRESOLVED"
 
 
@@ -637,7 +713,7 @@ def test_effective_date_leap_year_valid(direct_deploy, direct_vm):
         make_assessment_payload(effective_day=20240229),
     )
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res[0] == "TRACEABLE"
     assert res[4] == 20240229
 
@@ -652,7 +728,7 @@ def test_charge_direction_allowed_values(direct_deploy, direct_vm, direction):
         make_assessment_payload(charge_direction=direction),
     )
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res[0] == "TRACEABLE"
     assert res[5] == direction
 
@@ -686,18 +762,51 @@ def test_hostile_prompt_injection_in_evidence_returns_unresolved(direct_deploy, 
         ),
     )
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, hostile_hash, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, hostile_hash)
     assert res[0] == "UNRESOLVED"
 
 
-def test_malformed_llm_json_or_missing_keys_returns_unresolved(direct_deploy, direct_vm):
+def test_malformed_llm_json_returns_unresolved(direct_deploy, direct_vm):
     contract = deploy(direct_deploy)
     seal_default(contract)
     mock_docs(direct_vm)
     direct_vm.mock_llm(r"covenant analyst", "NOT_JSON")
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res[0] == "UNRESOLVED"
+
+
+def test_llm_json_missing_required_fields_preserves_sealed_state(direct_deploy, direct_vm):
+    contract = deploy(direct_deploy)
+    seal_default(contract)
+    mock_docs(direct_vm)
+    direct_vm.mock_llm(
+        r"covenant analyst",
+        json.dumps({"extracted_utility_name": UTILITY_NAME}),
+    )
+    before = contract.read_notice_trace(RECORD_ID)
+
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
+
+    assert res[0] == "UNRESOLVED"
+    assert res[8] == "UNRESOLVED"
+    assert contract.read_notice_trace(RECORD_ID) == before
+
+
+def test_llm_json_missing_evidence_state_fails_closed(direct_deploy, direct_vm):
+    contract = deploy(direct_deploy)
+    seal_default(contract)
+    mock_docs(direct_vm)
+    payload = json.loads(make_assessment_payload())
+    del payload["evidence_state"]
+    direct_vm.mock_llm(r"covenant analyst", json.dumps(payload))
+    before = contract.read_notice_trace(RECORD_ID)
+
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
+
+    assert res[0] == "UNRESOLVED"
+    assert res[8] == "UNRESOLVED"
+    assert contract.read_notice_trace(RECORD_ID) == before
 
 
 # =============================================================================
@@ -710,7 +819,7 @@ def test_tariff_web_fetch_error_status_returns_insufficient_public_evidence(dire
     seal_default(contract)
     direct_vm.mock_web(r"tariffs/schedule-2026-r4\.html$", {"status": status, "body": TARIFF_BODY})
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res[0] == "INSUFFICIENT_PUBLIC_EVIDENCE"
     assert res[8] == "INSUFFICIENT_EVIDENCE"
 
@@ -721,7 +830,7 @@ def test_notice_web_fetch_error_status_returns_insufficient_public_evidence(dire
     seal_default(contract)
     mock_docs(direct_vm, notice_status=status)
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res[0] == "INSUFFICIENT_PUBLIC_EVIDENCE"
     assert res[8] == "INSUFFICIENT_EVIDENCE"
 
@@ -732,7 +841,7 @@ def test_document_hash_mismatch_returns_insufficient_public_evidence(direct_depl
     # Notice content hash won't match NOTICE_HASH
     mock_docs(direct_vm, notice_body="<html><body>Altered content</body></html>")
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res[0] == "INSUFFICIENT_PUBLIC_EVIDENCE"
     assert res[8] == "INSUFFICIENT_EVIDENCE"
 
@@ -747,7 +856,7 @@ def test_evidence_failure_preserves_sealed_state_no_mutation(direct_deploy, dire
     # 404 response on web fetch
     direct_vm.mock_web(r"tariffs/schedule-2026-r4\.html$", {"status": 404, "body": TARIFF_BODY})
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res[0] == "INSUFFICIENT_PUBLIC_EVIDENCE"
     assert res[8] == "INSUFFICIENT_EVIDENCE"
     assert res[9] == 1
@@ -769,7 +878,7 @@ def test_evidence_failure_on_reassessment_preserves_prior_assessed_state(direct_
     direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
 
     # Successful first assessment
-    res1 = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res1 = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res1[0] == "TRACEABLE"
     assert res1[9] == 1
 
@@ -782,7 +891,6 @@ def test_evidence_failure_on_reassessment_preserves_prior_assessed_state(direct_
         1,
         CORRECTION_NOTICE_URL,
         CORRECTED_NOTICE_HASH,
-        CORRECTION_DAY,
     )
     assert res2[0] == "INSUFFICIENT_PUBLIC_EVIDENCE"
     assert res2[8] == "INSUFFICIENT_EVIDENCE"
@@ -824,7 +932,7 @@ def test_counterexample_different_service_class(direct_deploy, direct_vm):
         ),
     )
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, diff_sha, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, diff_sha)
     assert res[0] == "MISMATCH"
     assert res[1] == ALL_CRITERIA_MASK ^ SERVICE_CLASS
     assert res[2] == SERVICE_CLASS
@@ -848,7 +956,7 @@ def test_counterexample_different_utility(direct_deploy, direct_vm):
         ),
     )
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res[0] == "MISMATCH"
     assert res[1] == ALL_CRITERIA_MASK ^ UTILITY_IDENTITY
     assert res[2] == UTILITY_IDENTITY
@@ -871,7 +979,7 @@ def test_counterexample_different_tariff_revision(direct_deploy, direct_vm):
         ),
     )
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res[0] == "MISMATCH"
     assert res[1] == ALL_CRITERIA_MASK ^ TARIFF_REVISION
     assert res[2] == TARIFF_REVISION
@@ -880,15 +988,15 @@ def test_counterexample_different_tariff_revision(direct_deploy, direct_vm):
 
 
 @pytest.mark.parametrize(
-    "identity_field,identity_bit",
+    "identity_field,identity_bit,changed_value",
     [
-        ("extracted_utility_name", UTILITY_IDENTITY),
-        ("extracted_tariff_revision", TARIFF_REVISION),
-        ("extracted_service_class", SERVICE_CLASS),
+        ("extracted_utility_name", UTILITY_IDENTITY, "Northern Electric Grid"),
+        ("extracted_tariff_revision", TARIFF_REVISION, "Schedule-2026-R5-Different"),
+        ("extracted_service_class", SERVICE_CLASS, "Commercial-General-Service-C2"),
     ],
 )
-def test_identity_mismatch_mask_requires_a_different_observed_identity(
-    direct_deploy, direct_vm, identity_field, identity_bit
+def test_identity_mask_is_bound_to_observed_identity(
+    direct_deploy, direct_vm, identity_field, identity_bit, changed_value
 ):
     contract = deploy(direct_deploy)
     seal_default(contract)
@@ -896,14 +1004,87 @@ def test_identity_mismatch_mask_requires_a_different_observed_identity(
     direct_vm.mock_llm(
         r"covenant analyst",
         make_assessment_payload(
-            matched_mask=ALL_CRITERIA_MASK ^ identity_bit,
-            mismatch_mask=identity_bit,
+            **{identity_field: changed_value},
+            # Deliberately lie about the identity bit; the contract must
+            # derive it from the observed hash instead.
+            matched_mask=ALL_CRITERIA_MASK,
+            mismatch_mask=0,
         ),
     )
 
-    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
-    assert res[0] == "UNRESOLVED"
-    assert contract.read_criterion_masks(RECORD_ID) == (ALL_CRITERIA_MASK, 0, 0, 0)
+    res = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
+    assert res[0] == "MISMATCH"
+    assert res[1:4] == (
+        ALL_CRITERIA_MASK ^ identity_bit,
+        identity_bit,
+        0,
+    )
+    assert contract.read_criterion_masks(RECORD_ID) == (
+        ALL_CRITERIA_MASK,
+        ALL_CRITERIA_MASK ^ identity_bit,
+        identity_bit,
+        0,
+    )
+
+
+@pytest.mark.parametrize("bad_revision", [True, "1", -1, 4294967296])
+def test_reassess_rejects_coercive_prior_revision_inputs(
+    direct_deploy, direct_vm, direct_alice, bad_revision
+):
+    contract = deploy(direct_deploy)
+    direct_vm.sender = direct_alice
+    seal_default(contract)
+    mock_docs(direct_vm)
+    direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
+    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
+
+    with direct_vm.expect_revert("INVALID_PRIOR_REVISION"):
+        contract.reassess_corrected_notice(
+            RECORD_ID,
+            bad_revision,
+            NOTICE_URL,
+            NOTICE_HASH,
+        )
+
+
+def test_reassess_float_prior_revision_rejected_by_calldata_schema_without_broadcast(
+    direct_deploy, direct_vm, direct_alice
+):
+    contract = deploy(direct_deploy)
+    direct_vm.sender = direct_alice
+    seal_default(contract)
+    mock_docs(direct_vm)
+    direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
+    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
+
+    with pytest.raises(TypeError, match="not calldata encodable"):
+        contract.reassess_corrected_notice(
+            RECORD_ID,
+            1.9,
+            NOTICE_URL,
+            NOTICE_HASH,
+        )
+
+
+@pytest.mark.parametrize("bad_revision", [True, "1", -1, 4294967296])
+def test_read_revision_rejects_coercive_revision_inputs(
+    direct_deploy, direct_vm, bad_revision
+):
+    contract = deploy(direct_deploy)
+    register_default(contract)
+
+    with direct_vm.expect_revert("INVALID_REVISION"):
+        contract.read_revision(RECORD_ID, bad_revision)
+
+
+def test_read_revision_float_rejected_by_calldata_schema_without_broadcast(
+    direct_deploy, direct_vm
+):
+    contract = deploy(direct_deploy)
+    register_default(contract)
+
+    with pytest.raises(TypeError, match="not calldata encodable"):
+        contract.read_revision(RECORD_ID, 1.9)
 
 
 # =============================================================================
@@ -916,12 +1097,12 @@ def test_assess_customer_notice_same_evidence_is_idempotent(direct_deploy, direc
     mock_docs(direct_vm)
     direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
 
-    res1 = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res1 = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res1[0] == "TRACEABLE"
 
     # Replay identical evidence without mocking again — returns cached trace cleanly
     direct_vm.clear_mocks()
-    res2 = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res2 = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res2 == res1
 
 
@@ -931,10 +1112,10 @@ def test_assess_customer_notice_different_evidence_without_correction_rejected(d
     mock_docs(direct_vm)
     direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
 
-    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
 
     with direct_vm.expect_revert("RECORD_ALREADY_ASSESSED"):
-        contract.assess_customer_notice(RECORD_ID, CORRECTION_NOTICE_URL, CORRECTED_NOTICE_HASH, CORRECTION_DAY)
+        contract.assess_customer_notice(RECORD_ID, CORRECTION_NOTICE_URL, CORRECTED_NOTICE_HASH)
 
 
 # =============================================================================
@@ -956,7 +1137,7 @@ def test_reassess_corrected_notice_success_and_revision_increment(direct_deploy,
             effective_day=EFFECTIVE_DAY,
         ),
     )
-    res1 = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    res1 = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert res1[0] == "MISMATCH"
     assert res1[9] == 1
 
@@ -970,7 +1151,6 @@ def test_reassess_corrected_notice_success_and_revision_increment(direct_deploy,
         1,  # prior revision
         CORRECTION_NOTICE_URL,
         CORRECTED_NOTICE_HASH,
-        CORRECTION_DAY,
     )
     assert res2[0] == "TRACEABLE"
     assert res2[9] == 2
@@ -985,6 +1165,14 @@ def test_reassess_corrected_notice_success_and_revision_increment(direct_deploy,
     assert rev2[9] == 2
     assert rev1[10] != rev2[10]  # different manifest hashes
 
+    with direct_vm.expect_revert("REUSED_CORRECTION_MANIFEST"):
+        contract.reassess_corrected_notice(
+            RECORD_ID,
+            2,
+            NOTICE_URL,
+            NOTICE_HASH,
+        )
+
 
 def test_reassess_corrected_notice_unauthorized_rejected(direct_deploy, direct_vm, direct_alice, direct_bob):
     contract = deploy(direct_deploy)
@@ -992,7 +1180,7 @@ def test_reassess_corrected_notice_unauthorized_rejected(direct_deploy, direct_v
     seal_default(contract)
     mock_docs(direct_vm)
     direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
-    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
 
     direct_vm.sender = direct_bob
     with direct_vm.expect_revert("UNAUTHORIZED"):
@@ -1001,7 +1189,6 @@ def test_reassess_corrected_notice_unauthorized_rejected(direct_deploy, direct_v
             1,
             CORRECTION_NOTICE_URL,
             CORRECTED_NOTICE_HASH,
-            CORRECTION_DAY,
         )
 
 
@@ -1011,7 +1198,7 @@ def test_reassess_corrected_notice_stale_revision_rejected(direct_deploy, direct
     seal_default(contract)
     mock_docs(direct_vm)
     direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
-    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
 
     with direct_vm.expect_revert("STALE_REVISION"):
         contract.reassess_corrected_notice(
@@ -1019,44 +1206,53 @@ def test_reassess_corrected_notice_stale_revision_rejected(direct_deploy, direct
             2,  # wrong revision
             CORRECTION_NOTICE_URL,
             CORRECTED_NOTICE_HASH,
-            CORRECTION_DAY,
         )
 
 
-def test_reassess_corrected_notice_same_manifest_rejected(direct_deploy, direct_vm, direct_alice):
+def test_reassess_corrected_notice_same_current_manifest_allowed(direct_deploy, direct_vm, direct_alice):
     contract = deploy(direct_deploy)
     direct_vm.sender = direct_alice
     seal_default(contract)
     mock_docs(direct_vm)
     direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
-    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
 
-    with direct_vm.expect_revert("REUSED_CORRECTION_MANIFEST"):
-        contract.reassess_corrected_notice(
-            RECORD_ID,
-            1,
-            NOTICE_URL,
-            NOTICE_HASH,
-            PUBLICATION_DAY,
-        )
+    corrected = contract.reassess_corrected_notice(
+        RECORD_ID,
+        1,
+        NOTICE_URL,
+        NOTICE_HASH,
+    )
+    assert corrected[0] == "TRACEABLE"
+    assert corrected[9] == 2
+    assert contract.read_revision(RECORD_ID, 1)[9] == 1
+    assert contract.read_revision(RECORD_ID, 2)[9] == 2
 
 
-def test_reassess_corrected_notice_stale_or_earlier_publication_day_rejected(direct_deploy, direct_vm, direct_alice):
+def test_owner_can_correct_permissionless_first_assessment_with_same_manifest(
+    direct_deploy, direct_vm, direct_alice, direct_bob
+):
     contract = deploy(direct_deploy)
     direct_vm.sender = direct_alice
     seal_default(contract)
     mock_docs(direct_vm)
     direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
-    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, 20260315)
+    direct_vm.sender = direct_bob
+    first = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
+    assert first[0] == "TRACEABLE"
 
-    with direct_vm.expect_revert("STALE_CORRECTION_DAY"):
-        contract.reassess_corrected_notice(
-            RECORD_ID,
-            1,
-            CORRECTION_NOTICE_URL,
-            CORRECTED_NOTICE_HASH,
-            20260310,  # earlier than 20260315
-        )
+    direct_vm.sender = direct_alice
+    direct_vm.clear_mocks()
+    mock_docs(direct_vm)
+    direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
+    corrected = contract.reassess_corrected_notice(
+        RECORD_ID,
+        1,
+        NOTICE_URL,
+        NOTICE_HASH,
+    )
+    assert corrected[0] == "TRACEABLE"
+    assert corrected[9] == 2
 
 
 # =============================================================================
@@ -1069,7 +1265,7 @@ def test_validator_positive_agreement(direct_deploy, direct_vm):
     mock_docs(direct_vm)
     direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
 
-    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
     assert direct_vm.run_validator() is True
 
 
@@ -1096,7 +1292,7 @@ def test_differential_validator_all_10_consequential_fields(
     mock_docs(direct_vm)
     direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
 
-    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
 
     # Change mock to return a differing consequential field for validator
     direct_vm.clear_mocks()
@@ -1122,6 +1318,112 @@ def test_differential_validator_all_10_consequential_fields(
     assert direct_vm.run_validator() is False
 
 
+@pytest.mark.parametrize(
+    "expected_result,leader_kwargs,validator_kwargs",
+    [
+        (
+            "TRACEABLE",
+            {},
+            {"effective_day": 20260501},
+        ),
+        (
+            "TRACEABLE",
+            {},
+            {"charge_direction": "DECREASE"},
+        ),
+        (
+            "TRACEABLE",
+            {},
+            {"component_mask": COMPONENT_ENERGY_SUPPLY},
+        ),
+        (
+            "MISMATCH",
+            {
+                "extracted_service_class": "Commercial-C1",
+                "matched_mask": ALL_CRITERIA_MASK & ~SERVICE_CLASS,
+                "mismatch_mask": SERVICE_CLASS,
+            },
+            {
+                "extracted_service_class": "Commercial-C2",
+                "matched_mask": ALL_CRITERIA_MASK & ~SERVICE_CLASS,
+                "mismatch_mask": SERVICE_CLASS,
+            },
+        ),
+        (
+            "MISMATCH",
+            {
+                "extracted_utility_name": "Other Power Co",
+                "matched_mask": ALL_CRITERIA_MASK & ~UTILITY_IDENTITY,
+                "mismatch_mask": UTILITY_IDENTITY,
+            },
+            {
+                "extracted_utility_name": "Alternate Power Co",
+                "matched_mask": ALL_CRITERIA_MASK & ~UTILITY_IDENTITY,
+                "mismatch_mask": UTILITY_IDENTITY,
+            },
+        ),
+        (
+            "MISMATCH",
+            {
+                "extracted_tariff_revision": "Schedule-2026-Other-A",
+                "matched_mask": ALL_CRITERIA_MASK & ~TARIFF_REVISION,
+                "mismatch_mask": TARIFF_REVISION,
+            },
+            {
+                "extracted_tariff_revision": "Schedule-2026-Other-B",
+                "matched_mask": ALL_CRITERIA_MASK & ~TARIFF_REVISION,
+                "mismatch_mask": TARIFF_REVISION,
+            },
+        ),
+        (
+            "MISMATCH",
+            {
+                "extracted_service_class": "Commercial-C1",
+                "matched_mask": ALL_CRITERIA_MASK & ~SERVICE_CLASS,
+                "mismatch_mask": SERVICE_CLASS,
+            },
+            {
+                "extracted_utility_name": "Other Power Co",
+                "matched_mask": ALL_CRITERIA_MASK & ~UTILITY_IDENTITY,
+                "mismatch_mask": UTILITY_IDENTITY,
+            },
+        ),
+        (
+            "MISMATCH",
+            {
+                "extracted_utility_name": "Other Power Co",
+                "matched_mask": ALL_CRITERIA_MASK & ~(UTILITY_IDENTITY | TRANSITION_CONDITION),
+                "mismatch_mask": UTILITY_IDENTITY,
+                "missing_mask": TRANSITION_CONDITION,
+            },
+            {
+                "extracted_utility_name": "Other Power Co",
+                "matched_mask": ALL_CRITERIA_MASK & ~(UTILITY_IDENTITY | CHARGE_DIRECTION),
+                "mismatch_mask": UTILITY_IDENTITY,
+                "missing_mask": CHARGE_DIRECTION,
+                "charge_direction": "UNRESOLVED",
+            },
+        ),
+    ],
+)
+def test_validator_rejects_differentials_with_same_derived_result(
+    direct_deploy, direct_vm, expected_result, leader_kwargs, validator_kwargs
+):
+    contract = deploy(direct_deploy)
+    seal_default(contract)
+    mock_docs(direct_vm)
+    direct_vm.mock_llm(r"covenant analyst", make_assessment_payload(**leader_kwargs))
+
+    leader_result = contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
+    assert leader_result[0] == expected_result
+
+    direct_vm.clear_mocks()
+    mock_docs(direct_vm)
+    direct_vm.mock_llm(r"covenant analyst", make_assessment_payload(**validator_kwargs))
+
+    assert direct_vm.run_validator() is False
+
+
 # =============================================================================
 # Group 14: Storage Safety and Pickling Invariant
 # =============================================================================
@@ -1131,7 +1433,7 @@ def test_pickling_and_storage_safety_across_lifecycle(direct_deploy, direct_vm):
     seal_default(contract)
     mock_docs(direct_vm)
     direct_vm.mock_llm(r"covenant analyst", make_assessment_payload())
-    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH, PUBLICATION_DAY)
+    contract.assess_customer_notice(RECORD_ID, NOTICE_URL, NOTICE_HASH)
 
     # State readback is valid and pickling checks passed automatically via fixture
     trace = contract.read_notice_trace(RECORD_ID)

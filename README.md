@@ -2,71 +2,61 @@
 
 An on-chain, consensus-backed trace for whether a public utility customer notice preserves the consequential fields of a regulator-approved tariff revision.
 
-## Live deployment
+## Corrected R5 deployment
 
-- Network: GenLayer Studionet
-- Chain ID: `61999`
-- Contract: [`0xdcad372A9D2Db1afF6e5fa29A5E3c0EeCAE63814`](https://explorer-studio.genlayer.com/address/0xdcad372A9D2Db1afF6e5fa29A5E3c0EeCAE63814)
-- Deployer: `0x34b92E6553eaCA11A00A9d86d75d8a7881779D78`
-- Deployment transaction: [`0xb6c3b42f7198bab4617498cb6c2e10c56f5318fd7251b0d4a98e7295991e0638`](https://explorer-studio.genlayer.com/tx/0xb6c3b42f7198bab4617498cb6c2e10c56f5318fd7251b0d4a98e7295991e0638)
-- Deployment result: `FINALIZED / SUCCESS`
+This is the exact corrected revision executed after local and PRE-DEPLOY gates. The complete scenario evidence is in [`verification/e2e-matrix.md`](verification/e2e-matrix.md), with machine-readable bindings in [`verification/manifest.json`](verification/manifest.json).
 
-The live evidence includes a successful `TRACEABLE` consensus assessment ([E2E-05](https://explorer-studio.genlayer.com/tx/0x907fc1ccfab3bcf90828a9eaf0ec6040051971a7174e8f53de90d420af50e8e2)) and a service-class counterexample that returns `MISMATCH` ([E2E-11](https://explorer-studio.genlayer.com/tx/0x685002c7f9ffcb3e6781ed7b35b1fbd91846c520ca4f933865d23bfa909ddf65)). The complete matrix, receipts, consensus outcomes and readbacks are in [`verification/e2e-matrix.md`](verification/e2e-matrix.md).
+- Revision: `UTNC-PREDEPLOY-20260923-R5`
+- Contract SHA-256: `E5C63156299251C5FE46E554FC2EC94B47951D68C0B100E3D9B0DCA6DA6E897A`
+- Network: GenLayer Studio Dev, chain ID `61997`
+- Contract: [`0x41CaD4d9BbC0Efe83cf06FE30eBa84b3ceF6Ab42`](https://explorer-studio-dev.genlayer.com/address/0x41CaD4d9BbC0Efe83cf06FE30eBa84b3ceF6Ab42)
+- Explicit owner actor7: `0x8581C4A532DD3f9B163b12809b1bd089f367147f`
+- Explicit non-owner actor8: `0x91cb572164c865cbf323cf866fda6e01e35c02d0`
+- Deployment: [`0xb0850b4c8f8a90ba8e5fa8151100bc3de34911f1934a4aa98813679505314e40`](https://explorer-studio-dev.genlayer.com/tx/0xb0850b4c8f8a90ba8e5fa8151100bc3de34911f1934a4aa98813679505314e40), `FINALIZED / SUCCESS / MAJORITY_AGREE`
+- E2E: `PASS` for E2E-01 through E2E-18 and E2E-20; E2E-19 is explicitly `NOT APPLICABLE` because the safe validator-split preflight returned `-32603 Internal error` before broadcast, with unchanged record state.
 
-## Problem and why GenLayer
+## The rejected baseline and correction
 
-Tariff sheets and customer notices can use different public wording while referring to the same change. A conventional backend can parse or compare fields, but a single server should not be the sole authority for a consequential public trace. This contract lets validators independently retrieve the hash-bound public sources, extract a fixed set of decision fields and reach consensus before the trace changes.
+The rejected public revision is commit [`261663a1605af2099e0341fa4a5ebf1b41d90a65`](https://github.com/pcong5239/utility-tariff-change-notice-covenant/commit/261663a1605af2099e0341fa4a5ebf1b41d90a65). The rejection identified a griefing path: an unauthenticated first assessment could supply publication day `9999131`, consume the first assessment and prevent the owner from satisfying a strictly-newer correction-date rule.
 
-GenLayer is not needed when both documents already expose a signed, machine-readable schema with exact identifiers and deterministic comparison is sufficient. This contract does not calculate bills, decide legality, resolve customer disputes or process payments.
+R5 preserves the same trust problem, mechanism and scope while removing the unsafe caller-controlled date. Assessment methods accept only the notice manifest; correction ordering is bound to the accepted manifest and explicit `prior_revision`, and owner authorization is checked before nondeterministic work. The first assessment remains permissionless.
 
-## How it works
+## Problem and mechanism
+
+Tariff sheets and customer notices may use different public wording while referring to the same change. A single backend should not be the sole authority for a consequential public trace. The contract lets validators independently retrieve hash-bound public sources, extract a fixed decision tuple and reach consensus before the trace changes.
 
 1. The owner registers one tariff revision, its public source identity, allowed domains and required criterion mask.
-2. The owner seals the tariff identity; sealed utility, jurisdiction, tariff, service-class and criteria fields are immutable.
-3. A permissionless assessment asks the leader and validators to retrieve the tariff and notice sources and produce the same structured decision fields.
-4. The validator checks source meaning and exact consequential-field equality independently of the leader's explanation.
-5. Only an accepted consensus result mutates the record. The result is derived from the criterion partition: `TRACEABLE`, `MISMATCH`, `PARTIAL`, `INSUFFICIENT_PUBLIC_EVIDENCE` or `UNRESOLVED`.
+2. The owner seals the tariff identity; utility, jurisdiction, tariff, service class and criteria become immutable.
+3. A permissionless assessment retrieves the tariff and notice sources and reaches consensus on the structured decision tuple.
+4. Only accepted consensus mutates state. The aggregate result is derived from disjoint criterion masks: `TRACEABLE`, `MISMATCH`, `PARTIAL`, `INSUFFICIENT_PUBLIC_EVIDENCE` or `UNRESOLVED`.
+5. Owner-authorized corrections use an explicit prior revision and retain readable history; accepted manifest replay is idempotent.
 
-## State and invariants
-
-Records use one typed `TreeMap[str, TariffNoticeRecord]`. Lifecycle is `REGISTERED -> TARIFF_SEALED -> NOTICE_ASSESSED -> NOTICE_CORRECTED`. Matched, mismatch and missing masks are pairwise disjoint and cover the required mask exactly. Effective date, charge direction, service class, billing component and transition condition are decision fields; explanations are not stored. Replay of the same accepted evidence is idempotent, and corrections require a distinct manifest plus a newer publication day.
-
-## Public API
+## Public API and invariants
 
 Writes: `register_tariff`, `seal_tariff_revision`, `assess_customer_notice`, `reassess_corrected_notice`.
 
 Views: `read_notice_trace`, `read_change_signal`, `read_criterion_masks`, `read_revision`.
 
-`read_notice_trace` is the integrator-facing oracle view. It returns the exact masks, observed fields, evidence state, revision and lifecycle needed by notice-review queues, public archives and community-energy tooling.
+`assess_customer_notice` takes `(record_id, notice_url, notice_sha256)`. `reassess_corrected_notice` takes `(record_id, prior_revision, notice_url, notice_sha256)`; neither accepts a caller publication date.
 
-## Consensus binding and failure behavior
+The contract validates IDs, URLs, domains, SHA-256 values, masks, dates, enums and bounded text before external retrieval. Matched, mismatch and missing masks are pairwise disjoint and cover the required mask. Every consequential field is consensus-bound. Failed retrieval, hash verification, parsing, malformed model output, VM/LLM errors and validator disagreement fail closed and preserve the prior accepted state. Protocol-level undetermined execution is not represented as a fabricated contract result.
 
-The consensus tuple binds the three criterion masks, effective day, charge direction, service-class hash, component mask, evidence state, utility identity and tariff-revision identity. A generally plausible notice cannot become `TRACEABLE` if it has a different class, date, tariff revision or component. Invalid input and authorization failures revert before nondeterministic work. Source, hash, parsing, VM/LLM or validator disagreement failures preserve the prior record; a protocol-level undetermined transaction does not return contract calldata or mutate state.
+## Verification
 
-## Security and edge cases
-
-URLs are HTTPS-only and domain-allowlisted; hashes, dates, IDs, enum values and bitmasks are bounded. Customer, account, meter, address, usage, private-correspondence and amount/rate fields are rejected. Source text is hostile input: it cannot redefine the prompt schema or criteria. See [`docs/security.md`](docs/security.md) for the boundary and [`docs/consensus.md`](docs/consensus.md) for the exact binding model.
-
-## Tests and reproducibility
-
-```powershell
-$env:PYTHONUTF8='1'
-$env:GENVM_VERSION='v0.2.16'
-python -m pip install -r requirements.txt
-python -m pytest tests/test_utility_tariff_change_notice_covenant.py -q
-genvm-lint check contracts/utility_tariff_change_notice_covenant.py
-python -m compileall -q contracts tests
-```
-
-The authoritative local Direct Mode run used WSL2/uv with Python 3.12 and the exact pins in [`requirements.txt`](requirements.txt): `105 passed`, compileall passed, and `genvm-lint` passed 3 checks with semantic validation. Reproduce it from WSL2 with:
+The Direct Mode suite passed `130` tests with the exact pins in [`requirements.txt`](requirements.txt); `compileall` and `pip check` passed. The pinned Windows Direct Mode loader has a known `PermissionError: [WinError 32]` before contract import, so the passing test command is run through WSL2/uv:
 
 ```bash
-uv run --with-requirements requirements.txt python -m pytest tests/test_utility_tariff_change_notice_covenant.py -q
-uv run --with-requirements requirements.txt python -m compileall -q contracts tests
-GENVM_VERSION=v0.2.16 uv run --with-requirements requirements.txt genvm-lint check contracts/utility_tariff_change_notice_covenant.py
+uv run --offline --with-requirements requirements.txt python -m pytest tests/test_utility_tariff_change_notice_covenant.py -q
+uv run --offline --with-requirements requirements.txt python -m compileall -q contracts tests
 ```
 
-Native Windows `genlayer-test==0.29.2` Direct Mode currently fails before contract import while its loader unlinks an open stdin temporary file (`PermissionError: [WinError 32]`) under both CPython 3.12 and 3.13. This is a tooling/OS limitation, not a passing Windows test result; use WSL2 for the reproducible Direct Mode run. The exact deployed source, test and E2E-plan hashes are recorded in [`verification/manifest.json`](verification/manifest.json). [`E2E_TEST_PLAN.md`](E2E_TEST_PLAN.md) records the complete 17-scenario plan.
+The pinned `genvm-linter 0.11.1rc2` passed lint and semantic validation under `GENVM_VERSION=v0.6.0-rc5`; the deployed schema has 8 methods (4 view, 4 write). Deployed source readback matched the candidate source line-for-line.
+
+The E2E matrix records every write operation ID, transaction hash, Explorer URL, finality, semantic outcome, consensus result and authoritative readback. Fixture URLs are pinned to the baseline commit and their SHA-256 values are recorded in [`E2E_TEST_PLAN.md`](E2E_TEST_PLAN.md) and [`verification/manifest.json`](verification/manifest.json).
+
+## Scope and limitations
+
+The MVP handles one sealed tariff revision and one preselected service class. It does not calculate monetary bills, decide legality, resolve customer disputes, manage customer accounts, record a publication chronology or process payments. GenLayer is unnecessary when both documents already expose a signed, machine-readable schema and deterministic comparison is sufficient.
 
 ## Repository structure
 
@@ -82,18 +72,5 @@ verification/manifest.json
 E2E_TEST_PLAN.md
 requirements.txt
 LICENSE
-.gitignore
 README.md
 ```
-
-## Consensus engineering lessons
-
-- Bind every consequential field, not only the coarse result label.
-- Derive status from a complete, disjoint criterion partition.
-- Treat public evidence and model output as hostile input.
-- Keep storage mutation after consensus acceptance and preserve state on failures.
-- `FINALIZED` is necessary but must be paired with execution `SUCCESS` and authoritative readback.
-
-## Reusable integrations and limitations
-
-Integrators can use `read_notice_trace` to flag a notice for manual review, feed a public tariff archive, or route a community-energy compliance queue. The MVP handles one sealed tariff revision and one preselected service class; it does not compute monetary rates, interpret law, manage customer accounts or crawl sources.

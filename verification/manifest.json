@@ -1,17 +1,31 @@
 {
-  "revision_id": "UTCNC-PD-20260825-R3",
+  "revision_id": "UTNC-PREDEPLOY-20260923-R5",
   "project_display_name": "Utility Tariff Change Notice Covenant",
-  "network": "studionet",
-  "chain_id": 61999,
-  "contract_address": "0xdcad372A9D2Db1afF6e5fa29A5E3c0EeCAE63814",
-  "deployer_address": "0x34b92E6553eaCA11A00A9d86d75d8a7881779D78",
-  "deployment_transaction": "0xb6c3b42f7198bab4617498cb6c2e10c56f5318fd7251b0d4a98e7295991e0638",
+  "source_sha256": "E5C63156299251C5FE46E554FC2EC94B47951D68C0B100E3D9B0DCA6DA6E897A",
+  "tests_sha256": "9D601821FE70B9E6DA692F95E7A5D6041F3D4800D78FB2B8C2BA940698856721",
+  "network": "studio-dev",
+  "rpc": "https://studio-dev.genlayer.com/api",
+  "chain_id": 61997,
+  "explorer": "https://explorer-studio-dev.genlayer.com/",
+  "contract_address": "0x41CaD4d9BbC0Efe83cf06FE30eBa84b3ceF6Ab42",
+  "deployer_address": "0x8581C4A532DD3f9B163b12809b1bd089f367147f",
+  "non_owner_actor_address": "0x91cb572164c865cbf323cf866fda6e01e35c02d0",
+  "deployment_transaction": "0xb0850b4c8f8a90ba8e5fa8151100bc3de34911f1934a4aa98813679505314e40",
   "deployment_status": "FINALIZED",
   "deployment_result": "SUCCESS",
+  "deployment_consensus": "MAJORITY_AGREE",
   "artifacts": {
-    "contracts/utility_tariff_change_notice_covenant.py": "637053FF841FA8DC97D43A6F716278CECB43E46F42F6ED7BEFE2A66F45D280D5",
-    "tests/test_utility_tariff_change_notice_covenant.py": "ED3A3505515D8BA83BD105AACF1F9BC8215700914394FA023EDB2DDAF4F872F2",
-    "E2E_TEST_PLAN.md": "2185E31AECB89EB8AC4ED460F48FDE65BC21A2761AD860580CB51746243115C1"
+    "contracts/utility_tariff_change_notice_covenant.py": "E5C63156299251C5FE46E554FC2EC94B47951D68C0B100E3D9B0DCA6DA6E897A",
+    "tests/test_utility_tariff_change_notice_covenant.py": "9D601821FE70B9E6DA692F95E7A5D6041F3D4800D78FB2B8C2BA940698856721",
+    "E2E_TEST_PLAN.md": "721A37BB9749A688C3B835A3DD620D5112A33BE6FEC10AEB058372770BBE0ABB",
+    "README.md": "2C75C9C3C6B5E655215DE945D2FB87D7B00B3F35C4967E5F560BF6BC75276FCC",
+    "verification/e2e-matrix.md": "E61E56FF78EB5409C404E21B832F858040D175A642B4941C8C0EC43C59343ED8"
+  },
+  "baseline_rejected_revision": {
+    "public_commit": "261663a1605af2099e0341fa4a5ebf1b41d90a65",
+    "contract_address": "0xdcad372A9D2Db1afF6e5fa29A5E3c0EeCAE63814",
+    "deployment_transaction": "0xb6c3b42f7198bab4617498cb6c2e10c56f5318fd7251b0d4a98e7295991e0638",
+    "reason_verbatim": "The evidence and consensus path are well constructed, but the first assessment can be permanently griefed: any caller may submit an allowlisted notice with publication day 9999131, after which the owner can never satisfy the correction method's strictly newer date rule. Please prevent an unauthenticated caller from consuming or permanently locking the first assessment—such as by owner-authorizing the accepted notice manifest, or by redesigning correction ordering so it does not caller-controlled maximum date—and provide matching submitted and deployed source."
   },
   "sample_canonical_sha256": {
     "samples/tariff_primary.txt": "4110eba6ea6ed9c4855483e19e2a4abbe455fc13a47ad1414655310975ac16bd",
@@ -21,12 +35,52 @@
     "samples/notice_effective_date_mismatch.txt": "9f2e587e45021674394d3dc7fcdf95df6cfc5fa84817083b9c0deadea00d392a",
     "samples/notice_partial.txt": "8720f3f7aa676268d38b6e79cfc44e12392ea2d6b353c8a7949cf652ae224628"
   },
+  "e2e_verdict": "PASS",
+  "e2e_conditional": {
+    "scenario": "E2E-19",
+    "status": "NOT APPLICABLE",
+    "reason": "The official genlayer_py simulate_write_contract validator-split preflight returned sim_call failed (code=-32603): Internal error before broadcast; no safe reproducible Studio Dev split path was available.",
+    "authoritative_pre_post": "record-019 remained UNRESOLVED, masks 127/0/0, revision 1, lifecycle TARIFF_SEALED"
+  },
+  "writes": [
+    {"scenario":"E2E-01","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-01-deploy-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0xb0850b4c8f8a90ba8e5fa8151100bc3de34911f1934a4aa98813679505314e40"},
+    {"scenario":"E2E-02","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-02-register-record001-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0x9e30772770829b23136963efd0efd62174a36f90adf834f64356bfa50c65a9b9"},
+    {"scenario":"E2E-03","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-03-seal-record001-nonowner-actor8-e5c631562992-9d601821fe70","tx_hash":"0x7c1450d7251ac626cdbdf9304d8addbf7e6cefcacdb7933e39a5dbe7343994ba"},
+    {"scenario":"E2E-04","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-04-seal-record001-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0x55f84b4b95d89d58949c52cb0fd91228afe3715ec7c90661b7022ec86fdd7294"},
+    {"scenario":"E2E-05","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-05-assess-record001-nonowner-actor8-e5c631562992-9d601821fe70","tx_hash":"0x79be038754657c8181d986ea07688afa35c187d817c615e1f5502f013ecbf901"},
+    {"scenario":"E2E-06","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-06-replay-assess-record001-nonowner-actor8-e5c631562992-9d601821fe70","tx_hash":"0x8dea5b9177e68a4ffe1446e26e28a0c5d6571fd16b4e98b7b726df320d9331a4"},
+    {"scenario":"E2E-07","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-07-reject-new-assess-record001-nonowner-actor8-e5c631562992-9d601821fe70","tx_hash":"0x3248666f5c153ac146929993d9e090666e330eb0ebfe86c36782999f48586168"},
+    {"scenario":"E2E-08","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-08-reject-correction-record001-nonowner-actor8-e5c631562992-9d601821fe70","tx_hash":"0x50abf30b71a77fc04802eb7b54c05173124131c63835e1bd65c7f666ae306f4a"},
+    {"scenario":"E2E-09","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-09-stale-correction-record001-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0xb358248c2b3763a75b15d44b57e432dc6aaacf611fe1d8c03f912861b81238b7"},
+    {"scenario":"E2E-10","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-10-correct-current-record001-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0x52083440af0ad0118cdf056095a097388597f17a54542a2f64711ea9a3eaa194"},
+    {"scenario":"E2E-11","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-11-correct-new-record001-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0xc4ccb28b0e06665f8f472446e07668b6971165fc8170b9d32442fef5f8761c90"},
+    {"scenario":"E2E-12","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-12-reuse-manifest-record001-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0xe0083245b759d0996d7c94b6427e6fd03e77ec39c8e0f518b7957f7145784fa7"},
+    {"scenario":"E2E-13a","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-13a-register-record013-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0x1b79ca3eea9e221ef6a1ce484d11192257565d7a1b70c4af3d2b32243128612b"},
+    {"scenario":"E2E-13b","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-13b-seal-record013-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0x181b18668222d91e6fa1000259f7f64b3132c76c20a579e7c8657a34bf35d964"},
+    {"scenario":"E2E-13c","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-13c-assess-record013-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0x89a3542bc557bda0795de7c7b65d41901725ceed3d55e27fa72ca9f2f44b4d6d"},
+    {"scenario":"E2E-14a","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-14a-register-record014-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0xf394de5d3338fffefad859727128cb2055eee3631aba560ee9ff6ddb677b0712"},
+    {"scenario":"E2E-14b","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-14b-seal-record014-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0xae68b276b89dda1f67d87ae594dfe3820bd500828ae2d15afc0b5cc4adab0812"},
+    {"scenario":"E2E-14c","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-14c-assess-record014-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0x2025e3c1ba7284b7bed30bf383b83cb2038bab1d148097c0176e47785420996d"},
+    {"scenario":"E2E-15a","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-15a-register-record015-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0x38ff3d90805aef8179a57011062c10b3e27c4a054d641856cd6c8cccfe2cd9fc"},
+    {"scenario":"E2E-15b","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-15b-seal-record015-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0xd1b0ca6fd05eb808b1892d540ccfec16a9b9d1f45a9784281447f45ba6eaf690"},
+    {"scenario":"E2E-15c","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-15c-assess-record015-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0x49caa3b60547d867b7df1dffaacb8c508d7d8b58acc17ba8b8314b6e56f1619d"},
+    {"scenario":"E2E-16a","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-16a-register-record016-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0x003abf8c215c94618010e8a2dd42654e49d2d1c40da646f61c01843ba545b80d"},
+    {"scenario":"E2E-16b","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-16b-seal-record016-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0xbea58eaaee3b9dad80d1a48b38489b5c02a721d6a951157dde0517610eae014b"},
+    {"scenario":"E2E-16c","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-16c-assess-record016-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0xcc63f7659eeab81e5fb68c39bbbb24ae32d2325bfd8a2fd617331705ee8eb31f"},
+    {"scenario":"E2E-17","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-17-invalid-record-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0xe5390cb56a80c787b4ee115c2e6443e73119a74bb44591a8cee4026b20205947"},
+    {"scenario":"E2E-19a","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-19a-register-record019-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0x9cfc3ee9638cde1146a7f76e011df3f9705737e7d1c23973cc8509b903638205"},
+    {"scenario":"E2E-19b","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-19b-seal-record019-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0x772c6b5eb59552096585cd5a99bac27637e17e6cc9e220d3d04e88ead8aa15d6"},
+    {"scenario":"E2E-20a","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-20a-register-record020-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0x8fe413bdcdd1079dc4262a33ec14ad92e13c53e48e83eabde1b092806e7c11c6"},
+    {"scenario":"E2E-20b","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-20b-seal-record020-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0x2d414e0532b7e8a9f53567d2650dbc891b3a846a876cae7bd92ba76321375ee6"},
+    {"scenario":"E2E-20c","operation_id":"utcn-studio-dev-61997-20260923-r5-e2e-20c-invalid-hash-record020-owner-actor7-e5c631562992-9d601821fe70","tx_hash":"0x6a8396948f6b389077000d562e92a99dcda16c3554775c40330a1250373b775b"}
+  ],
   "local_verification": {
-    "environment": "WSL2/uv, CPython 3.12",
-    "tests": "105 passed",
-    "lint": "3 checks passed; validation passed",
+    "tests": "130 passed in 9.52s",
     "compileall": "passed",
-    "linter_dependency": "genvm-linter==0.11.0",
-    "native_windows_note": "genlayer-test==0.29.2 Direct Mode hits gltest stdin temp-file WinError 32 before contract import; not counted as a Windows pass"
-  }
+    "pip_check": "passed",
+    "genvm_lint": "Lint passed; Validation passed; 8 methods (4 view, 4 write)",
+    "toolchain": "CLI 0.40.0-rc.3; SDK 2.0.0-rc.1; genvm-linter 0.11.1rc2; genlayer-test 0.29.2",
+    "source_parity": "deployed code readback matched the candidate source line-for-line"
+  },
+  "public_commit": "assigned only after the post-E2E Git destination gate"
 }

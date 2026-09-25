@@ -116,7 +116,6 @@ class TariffNoticeRecord:
     tariff_sha256: str
     notice_url: str
     notice_sha256: str
-    publication_day: u32
     permitted_domains: str
 
 
@@ -194,6 +193,14 @@ def _validate_calendar_day(value: int, field_name: str) -> u32:
     return u32(value)
 
 
+def _validate_u32(value: int, field_name: str) -> int:
+    if type(value) is not int or isinstance(value, bool):
+        raise gl.vm.UserError(f"INVALID_{field_name.upper()}")
+    if value < 0 or value > 4294967295:
+        raise gl.vm.UserError(f"INVALID_{field_name.upper()}")
+    return value
+
+
 def _validate_permitted_domains(domains: DynArray[str]) -> list[str]:
     if not isinstance(domains, (list, tuple, DynArray)) or len(domains) == 0 or len(domains) > MAX_DOMAINS_COUNT:
         raise gl.vm.UserError("INVALID_PERMITTED_DOMAINS")
@@ -253,12 +260,11 @@ def _validate_required_mask(mask: int) -> u8:
     return u8(mask)
 
 
-def _compute_notice_manifest(notice_url: str, notice_sha256: str, publication_day: int) -> str:
+def _compute_notice_manifest(notice_url: str, notice_sha256: str) -> str:
     canonical = json.dumps(
         {
             "notice_hash": notice_sha256,
             "notice_url": notice_url,
-            "publication_day": publication_day,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -455,7 +461,6 @@ def _execute_assessment_nondet(
     tariff_sha256: str,
     notice_url: str,
     notice_sha256: str,
-    publication_day: int,
     required_mask: int,
     expected_utility_hash: str,
     expected_tariff_revision_hash: str,
@@ -483,7 +488,6 @@ def _execute_assessment_nondet(
 
     evidence_json = json.dumps(
         {
-            "publication_day": publication_day,
             "required_mask": required_mask,
             "tariff_text": tariff_text,
             "notice_text": notice_text,
@@ -515,6 +519,15 @@ UNTRUSTED_EVIDENCE:
 {evidence_json}
 
 OUTPUT INSTRUCTIONS:
+Use the explicit field labels in the published text when they are present:
+`Utility:`, `Tariff revision:`, `Service class:`, `Effective date:`, `Charge direction:`,
+and the listed component/transition lines. Copy observed identity labels exactly after
+trimming surrounding whitespace. Compare the tariff and notice values criterion by
+criterion. A clear value difference is a mismatch, not an unresolved result; a clear
+omission from the notice is missing. Use `UNRESOLVED` only when the published evidence
+is ambiguous, malformed, or cannot support a bounded comparison. For a valid ordinary
+notice, return `VALID`, including when one or more criteria mismatch or are missing.
+Return JSON only: no Markdown fences, prose, comments, or alternate key names.
 Return compact JSON matching this exact structure:
 {{
   "extracted_utility_name": "<exact utility name observed in notice and tariff>",
@@ -538,6 +551,18 @@ Return compact JSON matching this exact structure:
         ext_tr_label = raw_res.get("extracted_tariff_revision")
         ext_sc_label = raw_res.get("extracted_service_class")
 
+        # Models sometimes preserve JSON scalar values as strings or vary enum
+        # casing despite response_format=json.  These conversions are lossless;
+        # all semantic and cross-field checks below remain mandatory.
+        for key in ("matched_mask", "mismatch_mask", "missing_mask", "effective_day", "component_mask"):
+            value = raw_res.get(key)
+            if isinstance(value, str) and re.fullmatch(r"[0-9]+", value.strip()) is not None:
+                raw_res[key] = int(value.strip())
+        for key in ("charge_direction", "evidence_state"):
+            value = raw_res.get(key)
+            if isinstance(value, str):
+                raw_res[key] = value.strip().upper()
+
         if (
             not isinstance(ext_u_name, str) or not (1 <= len(ext_u_name.strip()) <= MAX_TEXT_LEN)
             or not isinstance(ext_tr_label, str) or not (1 <= len(ext_tr_label.strip()) <= MAX_TEXT_LEN)
@@ -555,7 +580,37 @@ Return compact JSON matching this exact structure:
         eff_day = raw_res.get("effective_day")
         direction = raw_res.get("charge_direction")
         comp_mask = raw_res.get("component_mask")
-        ev_state = raw_res.get("evidence_state", "VALID")
+        # evidence_state is mandatory model output. Never treat an omitted
+        # evidence classification as VALID; malformed output must fail closed.
+        if "evidence_state" not in raw_res:
+            return _unresolved_assessment(
+                required_mask,
+                ev_state="UNRESOLVED",
+                u_hash=u_hash,
+                tr_hash=tr_hash,
+                sc_hash=sc_hash,
+            )
+        ev_state = raw_res.get("evidence_state")
+
+        # Identity outcomes are deterministic consequences of the observed
+        # labels and the sealed expected hashes. Never let the model choose
+        # whether an observed identity is matched or mismatched.
+        identity_bits = UTILITY_IDENTITY | TARIFF_REVISION | SERVICE_CLASS
+        identity_matched = 0
+        identity_mismatch = 0
+        for observed_hash, expected_hash, bit in (
+            (u_hash, expected_utility_hash, UTILITY_IDENTITY),
+            (tr_hash, expected_tariff_revision_hash, TARIFF_REVISION),
+            (sc_hash, expected_service_class_hash, SERVICE_CLASS),
+        ):
+            if (missing & bit) != 0:
+                continue
+            if observed_hash == expected_hash:
+                identity_matched |= bit
+            else:
+                identity_mismatch |= bit
+        matched = (matched & ~identity_bits) | identity_matched
+        mismatch = (mismatch & ~identity_bits) | identity_mismatch
 
         candidate = {
             "matched_mask": matched,
@@ -596,6 +651,7 @@ Return compact JSON matching this exact structure:
 
 class UtilityTariffChangeNoticeCovenant(gl.Contract):
     records: TreeMap[str, TariffNoticeRecord]
+    used_notice_manifests: TreeMap[str, bool]
 
     def __init__(self):
         pass
@@ -625,7 +681,7 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
         domains = _validate_permitted_domains(permitted_domains)
         t_url = _validate_url(tariff_url, domains, "tariff_url")
         t_sha = _validate_hash(tariff_sha256, "tariff_sha256")
-        req_mask = _validate_required_mask(int(required_criterion_mask))
+        req_mask = _validate_required_mask(required_criterion_mask)
 
         owner = gl.message.sender_address
         record = TariffNoticeRecord(
@@ -654,7 +710,6 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
             tariff_sha256=t_sha,
             notice_url="",
             notice_sha256="",
-            publication_day=u32(0),
             permitted_domains=",".join(domains),
         )
         self.records[current_key] = record
@@ -681,7 +736,6 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
         record_id: str,
         notice_url: str,
         notice_sha256: str,
-        publication_day: u32,
     ) -> tuple[str, u8, u8, u8, u32, str, str, u8, str, u32]:
         rec_id = _validate_id(record_id)
         current_key = f"current:{rec_id}"
@@ -696,8 +750,7 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
             domains = record.permitted_domains.split(",")
             n_url = _validate_url(notice_url, domains, "notice_url")
             n_sha = _validate_hash(notice_sha256, "notice_sha256")
-            pub_day = _validate_calendar_day(int(publication_day), "publication_day")
-            manifest = _compute_notice_manifest(n_url, n_sha, int(pub_day))
+            manifest = _compute_notice_manifest(n_url, n_sha)
             if manifest == record.notice_manifest_hash:
                 return (
                     record.result,
@@ -716,8 +769,7 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
         domains = record.permitted_domains.split(",")
         n_url = _validate_url(notice_url, domains, "notice_url")
         n_sha = _validate_hash(notice_sha256, "notice_sha256")
-        pub_day = _validate_calendar_day(int(publication_day), "publication_day")
-        manifest = _compute_notice_manifest(n_url, n_sha, int(pub_day))
+        manifest = _compute_notice_manifest(n_url, n_sha)
 
         t_url = record.tariff_url
         t_sha = record.tariff_sha256
@@ -725,7 +777,6 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
         u_hash = record.utility_hash
         tr_hash = record.tariff_revision_hash
         sc_hash = record.service_class_hash
-        day_val = int(pub_day)
 
         def leader_func() -> dict:
             return _execute_assessment_nondet(
@@ -733,7 +784,6 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
                 tariff_sha256=t_sha,
                 notice_url=n_url,
                 notice_sha256=n_sha,
-                publication_day=day_val,
                 required_mask=req_mask,
                 expected_utility_hash=u_hash,
                 expected_tariff_revision_hash=tr_hash,
@@ -760,7 +810,6 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
                     tariff_sha256=t_sha,
                     notice_url=n_url,
                     notice_sha256=n_sha,
-                    publication_day=day_val,
                     required_mask=req_mask,
                     expected_utility_hash=u_hash,
                     expected_tariff_revision_hash=tr_hash,
@@ -831,10 +880,10 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
         record.result = derived_result
         record.notice_url = n_url
         record.notice_sha256 = n_sha
-        record.publication_day = pub_day
         record.notice_manifest_hash = manifest
         record.lifecycle = NOTICE_ASSESSED
 
+        self.used_notice_manifests[f"{rec_id}:{manifest}"] = True
         self.records[current_key] = record
         self.records[f"history:{rec_id}:{int(record.revision)}"] = record
 
@@ -858,7 +907,6 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
         prior_revision: u32,
         notice_url: str,
         notice_sha256: str,
-        publication_day: u32,
     ) -> tuple[str, u8, u8, u8, u32, str, str, u8, str, u32]:
         rec_id = _validate_id(record_id)
         current_key = f"current:{rec_id}"
@@ -870,19 +918,17 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
             raise gl.vm.UserError("UNAUTHORIZED")
         if record.lifecycle not in (NOTICE_ASSESSED, NOTICE_CORRECTED):
             raise gl.vm.UserError("RECORD_NOT_ASSESSED")
-        if int(prior_revision) != int(record.revision):
+        prior = _validate_u32(prior_revision, "prior_revision")
+        if prior != int(record.revision):
             raise gl.vm.UserError("STALE_REVISION")
 
         domains = record.permitted_domains.split(",")
         n_url = _validate_url(notice_url, domains, "notice_url")
         n_sha = _validate_hash(notice_sha256, "notice_sha256")
-        pub_day = _validate_calendar_day(int(publication_day), "publication_day")
-        new_manifest = _compute_notice_manifest(n_url, n_sha, int(pub_day))
-
-        if new_manifest == record.notice_manifest_hash:
+        new_manifest = _compute_notice_manifest(n_url, n_sha)
+        manifest_key = f"{rec_id}:{new_manifest}"
+        if manifest_key in self.used_notice_manifests and new_manifest != record.notice_manifest_hash:
             raise gl.vm.UserError("REUSED_CORRECTION_MANIFEST")
-        if int(pub_day) <= int(record.publication_day):
-            raise gl.vm.UserError("STALE_CORRECTION_DAY")
 
         t_url = record.tariff_url
         t_sha = record.tariff_sha256
@@ -890,7 +936,6 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
         u_hash = record.utility_hash
         tr_hash = record.tariff_revision_hash
         sc_hash = record.service_class_hash
-        day_val = int(pub_day)
 
         def leader_func() -> dict:
             return _execute_assessment_nondet(
@@ -898,7 +943,6 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
                 tariff_sha256=t_sha,
                 notice_url=n_url,
                 notice_sha256=n_sha,
-                publication_day=day_val,
                 required_mask=req_mask,
                 expected_utility_hash=u_hash,
                 expected_tariff_revision_hash=tr_hash,
@@ -925,7 +969,6 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
                     tariff_sha256=t_sha,
                     notice_url=n_url,
                     notice_sha256=n_sha,
-                    publication_day=day_val,
                     required_mask=req_mask,
                     expected_utility_hash=u_hash,
                     expected_tariff_revision_hash=tr_hash,
@@ -997,11 +1040,11 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
         record.result = derived_result
         record.notice_url = n_url
         record.notice_sha256 = n_sha
-        record.publication_day = pub_day
         record.notice_manifest_hash = new_manifest
         record.revision = new_rev
         record.lifecycle = NOTICE_CORRECTED
 
+        self.used_notice_manifests[manifest_key] = True
         self.records[current_key] = record
         self.records[f"history:{rec_id}:{int(new_rev)}"] = record
 
@@ -1074,10 +1117,11 @@ class UtilityTariffChangeNoticeCovenant(gl.Contract):
         revision: u32,
     ) -> tuple[str, u8, u8, u8, u32, str, str, u8, str, u32, str]:
         rec_id = _validate_id(record_id)
-        if int(revision) == 0:
+        revision_value = _validate_u32(revision, "revision")
+        if revision_value == 0:
             key = f"current:{rec_id}"
         else:
-            key = f"history:{rec_id}:{int(revision)}"
+            key = f"history:{rec_id}:{revision_value}"
         if key not in self.records:
             raise gl.vm.UserError("REVISION_NOT_FOUND")
         rec = self.records[key]
