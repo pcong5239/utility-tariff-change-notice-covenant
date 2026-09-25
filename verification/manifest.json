@@ -82,5 +82,5 @@
     "toolchain": "CLI 0.40.0-rc.3; SDK 2.0.0-rc.1; genvm-linter 0.11.1rc2; genlayer-test 0.29.2",
     "source_parity": "deployed code readback matched the candidate source line-for-line"
   },
-  "public_commit": "assigned only after the post-E2E Git destination gate"
+  "public_commit": "a49ec9c0ffd9d453b1f5aad6511802aaa72ff2e1"
 }
